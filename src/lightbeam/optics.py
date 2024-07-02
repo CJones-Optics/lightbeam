@@ -164,6 +164,9 @@ class scaled_cyl(OpticPrim):
         dxg,dyg = np.meshgrid(m.dxa,m.dya,indexing='ij')
 
         geom.AA_circle_nonu(out,xg,yg,xhg,yhg,center,self.r*scale,self.nb2*coeff,self.n2*coeff,bbox,rxg,ryg,dxg,dyg)
+
+
+
     
 class OpticSys(OpticPrim):
     '''base class for optical systems, collections of primitives immersed in some background medium'''

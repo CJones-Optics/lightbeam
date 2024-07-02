@@ -6,7 +6,7 @@ from lightbeam.misc import normalize,overlap_nonu,norm_nonu
 from lightbeam import LPmodes
 import matplotlib.pyplot as plt
 # from config_example import *
-from MMF import *
+from MMF2 import *
 
 if __name__ == "__main__":
 
