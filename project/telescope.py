@@ -4,56 +4,184 @@ import matplotlib.pyplot as plt
 from numbaLib import bilinear_interp,zoom
 
 class telescope(object):
-    def __init__(self, wvl, d1, f, pupil_size=100, pixels=256,obs=0.3):
+    def __init__(self, wvl, d, fov, N_p,N_f,simPad=1,FFTOversamp=2, obs=0 ):
+        from numbaLib import bilinear_interp, zoom
+
         self.wvl = wvl
-        self.d1 = d1
-        self.f = f
-        self.fov = 2*np.arctan(self.d1/(2*self.f))
-        self.pupil_size = pupil_size
-        self.pixels = pixels
+        self.d = d
+        self.fov = fov
+        self.N_p = N_p
+        self.N_f = N_f
+        self.simPad = simPad
         self.obscuration = obs
+        self.FFTOversamp = FFTOversamp
 
-        self.fovPerPix = self.fov / self.pupil_size
-        self.fovPixNum = int(round(self.d1 * self.fovPerPix / self.wvl))
+        self.sim_size  = self.N_p + 2*self.simPad
+        self.fovPixNum = (np.round(self.d*self.fov/self.wvl)).astype(int)
 
-        self.cameraPixelScale = d1/pixels/self.fovPixNum*1e6
+        self.FFTPadding = N_f * self.FFTOversamp
+        if self.FFTPadding < self.fovPixNum:
+            print(f"Increasing FFTPadding")
+            print(f"Old FFTPadding: {self.FFTPadding}")
+            while self.FFTPadding < self.fovPixNum:
+                self.FFTOversamp += 1
+                self.FFTPadding = self.FFTOversamp*N_f
+            print(f"New FFTPadding: {self.FFTPadding}")
+        
+        self.FFTInput = np.zeros((self.FFTPadding,self.FFTPadding),dtype=np.complex128)
+        self.interpCoords = np.linspace(self.simPad,self.simPad+self.N_p,self.fovPixNum)
 
-        print(f"zoomed Pixel Scale: {self.cameraPixelScale} um")
+        self.getMask()
+        self.effective_focal_length()
+        self.ppScale()
+        self.fpScale()
 
         self.method = 'interpolated'
     
-    def getMask(self,u0):
-        N = u0.shape[0]
-        mask = aotools.circle(N/2,N) - aotools.circle(N/2*self.obscuration,N)
+    def getMask(self):
+        N = self.N_p
+        mask = aotools.circle(N/2,N) 
+        if self.obscuration > 0: # Only bother with the central obscuration if it is non-zero
+            mask -= aotools.circle(N/2*self.obscuration,N)
         self.mask = mask
+        self.scaledMask = zoom(mask,self.fovPixNum) # This is the mask for the FOV
         return mask
+    
+    def effective_focal_length(self):
+        self.eff = self.d/(2*np.tan(self.fov/2) )
+        return self.eff
+    def ppScale(self):
+        self.ppScale = self.d / self.N_p
+        return self.ppScale
+    def fpScale(self):
+        self.fpScale = (self.wvl*self.eff ) / (self.d*self.N_f)
+        return self.fpScale
+    
+
+
+    def interp(self,P,coords):
+        # Wrapper function to improve the ergonomics of the bilinear_interp function
+        interpArray = np.zeros((coords.size,coords.size),dtype=np.complex128)
+        bilinear_interp(P,coords,coords,interpArray)
+        return interpArray
 
     def propagate(self,u0):
-        u0 = self.getMask(u0)*u0
+        u0 = self.mask*u0
 
-        if self.method == 'lensAgainst':
-            u1 = aotools.opticalpropagation.lensAgainst(u0, self.wvl, self.d1, self.f)
-        if self.method == 'fft':
-            u1 = np.fft.fftshift( np.fft.fft2(u0) )
+        # These arn't being used, leaving in just in case
+        # if self.method == 'lensAgainst':
+        #     u1 = aotools.opticalpropagation.lensAgainst(u0, self.wvl, self.d1, self.f)
+        # if self.method == 'fft':
+        #     u1 = np.fft.fftshift( np.fft.fft2(u0) )
+
         if self.method == 'interpolated':
+            # Grab the phase from the input field
             P = np.angle(u0)
-
-            # I am not sure which of the following is correct:
-            # fovPerPix = self.fov / self.pixels
-            # fovPerPix = self.fov / self.pupil_size
-            # fovPixNum = int(round(self.d1 * fovPerPix / self.wvl))
-
-            scaledMask = zoom(self.mask, self.fovPixNum)
-    
-            interp_coord = np.linspace(0, self.pupil_size, self.fovPixNum).astype(np.float32)
-
-            interpArray  = np.zeros((self.fovPixNum,self.fovPixNum),dtype=np.complex64)
-            interpPhase  = bilinear_interp(P, interp_coord, interp_coord, interpArray, bounds_check=True)
-
-            E_pupil = np.zeros( (self.pixels,self.pixels), dtype=np.complex64 )
-            E_pupil[:self.fovPixNum,:self.fovPixNum] = np.exp(1j*interpPhase)*scaledMask
-            u1 = np.fft.fftshift( np.fft.fft2(E_pupil) )
+            # Extract the FOV region of iterest
+            phaseInterp = self.interp(P,self.interpCoords)
+            E_fov = np.exp(1j*phaseInterp)*self.scaledMask
+            # Reset the FFTInput to zero's just incase it isnt
+            self.FFTInput *= 0
+            # Set the Region of interest the the FOV, leaving the rest as zero padding
+            self.FFTInput[:self.fovPixNum,:self.fovPixNum] = E_fov
+            # Use FFT to transform the FOV to the focal plane
+            E_focal = np.fft.fftshift(np.fft.fft2(self.FFTInput))
+            # Resize to self.N_f
+            u1 = np.zeros((self.N_f,self.N_f),dtype=np.complex128)
+            u1 = bin_img(E_focal,self.FFTOversamp, u1)
         return u1
+    
+    def getPupil(self,u0):
+        self.pupil = self.mask*u0
+        return self.pupil
+    def getFocus(self,u0):
+        self.focus = self.propagate(u0)
+        return self.focus
+    
+    def showPupilAndFocus(self,u0,show=True):
+        def calculate_extent(array, ds):
+            ny, nx = array.shape
+            extent = [-nx/2 * ds, nx/2 * ds, -ny/2 * ds, ny/2 * ds]
+            return extent
+        ds = self.fpScale * 1e6 # [um]
+        if self.pupil is None:
+            self.getPupil(u0)
+        if self.focus is None:
+            self.getFocus(u0)
+        fig, ax = plt.subplots(2,2)
+        ax[0,0].imshow(np.angle(self.pupil),  cmap='bwr', extent=calculate_extent(self.pupil, self.ppScale*1e3))
+        ax[1,0].imshow(np.abs(self.pupil)**2, cmap='hot', extent=calculate_extent(self.pupil, self.ppScale*1e3))
+        ax[0,1].imshow(np.angle(self.focus),  cmap='bwr', extent=calculate_extent(self.focus, self.fpScale*1e6))
+        ax[1,1].imshow(np.abs(self.focus)**2, cmap='hot', extent=calculate_extent(self.focus, self.fpScale*1e6))
+
+        ax[0,0].set_title('Pupil')
+        ax[0,1].set_title('Focus')
+
+        ax[1,0].set_xlabel('mm')
+        ax[1,1].set_xlabel('um')
+
+        if show:
+            plt.show()
+        return
+
+
+
+
+# Image binning algorithm
+
+import multiprocessing
+N_CPU = multiprocessing.cpu_count()
+from threading import Thread
+
+# python3 has queue, python2 has Queue
+try:
+    import queue
+except ImportError:
+    import Queue as queue
+
+import numpy
+import numba
+
+def bin_img(input_img, bin_size, binned_img, threads=None):
+    N_CPU = 4
+    if threads is None:
+        threads = N_CPU
+
+    n_rows = binned_img.shape[0]
+
+    Ts = []
+    for t in range(threads):
+        Ts.append(Thread(target=bin_img_numba,
+                         args=(
+                             input_img, bin_size, binned_img,
+                             numpy.array([int(t * n_rows / threads), int((t + 1) * n_rows / threads)]),
+                         )
+                         ))
+        Ts[t].start()
+
+    for T in Ts:
+        T.join()
+
+    return binned_img
+
+@numba.jit(nopython=True, nogil=True)
+def bin_img_numba(imgs, bin_size, new_img, row_indices):
+    # loop over each element in new array
+    for i in range(row_indices[0], row_indices[1]):
+        x1 = i * bin_size
+
+        for j in range(new_img.shape[1]):
+            y1 = j * bin_size
+            new_img[i, j] = 0
+
+            # loop over the values to sum
+            for x in range(bin_size):
+                for y in range(bin_size):
+                    new_img[i, j] += imgs[x1 + x, y1 + y]
+
+
+
+
 
 if __name__ == "__main__":
     #---------------------------
