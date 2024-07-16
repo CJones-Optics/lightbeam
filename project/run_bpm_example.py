@@ -9,6 +9,27 @@ import matplotlib.pyplot as plt
 from MMF2 import *
 
 if __name__ == "__main__":
+    ######################
+    ## set launch field ##
+    ######################
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from lightbeam import LPmodes
+    from lightbeam.misc import normalize
+
+    xa = np.linspace(-xw0/2,xw0/2,int(xw0/ds)+1)
+    ya = np.linspace(-yw0/2,yw0/2,int(yw0/ds)+1)
+    xg,yg  = np.meshgrid(xa,ya)
+
+    # u0 = normalize(LPmodes.lpfield(xg,yg,0,0,1.5*rclad,wl0,nclad,njack,'cos'))
+    u0 =  normalize(LPmodes.lpfield(xg,yg,2,2,1.5*rclad,wl0,nclad,njack,'cos'))
+    u0 +=  0.3*normalize(LPmodes.lpfield(xg,yg,2,1,1.5*rclad,wl0,nclad,njack,'cos'))
+    u0 +=  1*normalize(LPmodes.lpfield(xg,yg,1,1,1.5*rclad,wl0,nclad,njack,'cos'))
+
+
+    fplanewidth = 0 # manually reset the width of the input field. set to 0 to match field extent with grid extent.
+
+
 
     # mesh initialization (required)
     mesh = RectMesh3D(xw0,yw0,zw,ds,dz,num_PML,xw_func,yw_func)
@@ -23,6 +44,21 @@ if __name__ == "__main__":
     print('launch field')
     plt.imshow(np.real(u0))
     plt.show()
+
+    out = np.zeros( mesh.xy.shape )
+    print(f"Out shape: {out.shape}")  
+    print(f"u0 shape: {u0.shape}")
+    optic.set_IORsq(out,1)
+    plt.imshow(out,vmin=njack*njack,vmax=ncore*ncore)
+    plt.show()
+
+
+
+
+    print(f"Out shape: {out.shape}")  
+    print(f"u0 shape: {u0.shape}")
+    print(f"Mesh shape: {mesh.xy.shape}")
+    
 
     # run the propagator (required)
     u,u0 = prop.prop2end(u0,monitor_func=monitor_func,xyslice=None,zslice=None,writeto=writeto,ref_val=ref_val,remesh_every=remesh_every,dynamic_n0=dynamic_n0,fplanewidth=fplanewidth)

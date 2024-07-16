@@ -1,5 +1,5 @@
 
-
+import numpy as np
 ################################
 ## free space wavelength (um) ##
 ################################
@@ -96,6 +96,43 @@ class MMF(optics.OpticSys):
         self.core_locs = np.array([[0,0]])
 
 optic = MMF(rcore,rclad,ncore,nclad,njack,0,zex)
+
+class MMFBundleSubFiber():
+    def __init__(self,pos,rcore,rclad,ncore,nclad,njack,offset0,z_ex,nb=1):
+        core = optics.scaled_cyl(pos,rcore,z_ex,ncore,nclad,final_scale=1)
+        clad = optics.scaled_cyl(pos,rclad,z_ex,nclad,njack,final_scale=1)
+        elements = [clad,core]
+        self.pos = pos
+        self.elements = elements
+
+class MMFBundle(optics.OpticSys):
+    def __init__(self,rcore,rclad,ncore,nclad,njack,offset0,z_ex,nb=1):
+        self.subfibers = []
+        self.r = 2*rclad
+        for pos in self.get_core_locs():
+            self.subfibers.append(MMFBundleSubFiber(pos,rcore,rclad,ncore,nclad,njack,offset0,z_ex,nb=1))
+        # System elements
+        self.elements = []
+        for subfiber in self.subfibers:
+            self.elements += subfiber.elements
+        super().__init__(self.elements,njack)
+        
+    
+    def get_core_locs(self):
+        pos=[(0,0)]
+        deltaTheta = 2*np.pi/6
+        for i in range(1,7):
+            x = self.r*np.cos(i*deltaTheta)
+            y = self.r*np.sin(i*deltaTheta)
+            pos.append((x,y))
+        self.core_locs = np.array(pos)
+        return self.core_locs
+            
+            
+        
+
+
+
 
  
 #######################

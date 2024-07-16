@@ -127,6 +127,8 @@ def make_ani(out,t,dt,D=10,p=0.1,wl0=1,wl=1,vx=4,vy=0,r0=0.25,alpha=1,seed=34569
 
 if __name__=='__main__':
 
+    print("Starting")
+
     import zernike as zk
     #make_ani("turb_ani_test_alpha0pt999",5,0.01,vx=0,alpha=0.99)
 
@@ -138,32 +140,35 @@ if __name__=='__main__':
 
     for sr,r0 in zip(SRs,r0s):
 
-        D = 10. # [m]  telescope diameter
-        p = 10/256 # [m/pix] sampling scale
+        D = 0.7 # [m]  telescope diameter
+        p = D/256 # [m/pix] sampling scale
 
         # set wind parameters
         vy, vx = 0., 10. # [m/s] wind velocity vector
         T = 0.01 # [s]  sampling interval
 
         # set turbulence parameters
-        #r0 = 0.185 # [m]
-        wl0 = 1 #[um]
+        r0 = 0.15 # [m]
+        wl0 = 1.550 #[um]
         wl = 1 #[um]
 
         seed = 123456
-        psgen = PhaseScreenGenerator(D, p, vy, vx, T, r0, wl0, wl, seed=seed)
+        alpha_mag = 0.8
+        print("Generator")
+        psgen = PhaseScreenGenerator(D, p, vy, vx, T, r0, wl0, wl, seed=seed,alpha_mag=alpha_mag)
 
         xa = ya = np.linspace(-1,1,256)
         xg , yg = np.meshgrid(xa,ya)
 
         dA = (D/256)**2
+        print(f"dA: {dA}")
 
         z2 = zk.Zj_cart(2)(xg,yg)
         z3 = zk.Zj_cart(3)(xg,yg)
 
         #plt.imshow(z2)
         #plt.show()
-
+        print("np.sum(z2*z2) * dA / np.pi/25")
         print(np.sum(z2*z2) * dA / np.pi/25)
         s = psgen.generate()
 
@@ -194,7 +199,7 @@ if __name__=='__main__':
 
             pe2s.append(pe2)
             pe3s.append(pe3)
-
+        print("np.std(np.array(c2s))")
         print(np.std(np.array(c2s)))
         plt.plot(np.arange(1000)*0.01,c2s)
         plt.show()
@@ -202,8 +207,8 @@ if __name__=='__main__':
         rms2 = np.sqrt(np.mean(np.power(np.array(PV2s),2)))
         rms3 = np.sqrt(np.mean(np.power(np.array(PV3s),2)))
 
-        plt.plot(np.arange(100),pe2s,color='steelblue',label='x tilt')
-        plt.plot(np.arange(100),pe3s,color='indianred',label='y tilt')
+        plt.plot(np.arange(1000),pe2s,color='steelblue',label='x tilt')
+        plt.plot(np.arange(1000),pe3s,color='indianred',label='y tilt')
         #plt.axhline(y=rms2,color='steelblue',ls='dashed')
         #plt.axhline(y=rms3,color='indianred',ls='dashed')
         plt.xlabel("timestep")
@@ -215,6 +220,7 @@ if __name__=='__main__':
         rms2s.append(rms2)
         rms3s.append(rms3)
 
+    print("psgen = PhaseScreenGenerator(D, p, vy, vx, T, r0, wl0, wl, seed=seed)")
     plt.plot(SRs,rms2s,label="x tilt",color='steelblue')
     plt.plot(SRs,rms3s,label="y tilt",color='indianred')
 
